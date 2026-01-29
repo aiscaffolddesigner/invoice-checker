@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Antigravity Invoice & PO Management</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+
+<body>
+  <div class="container">
+    <header>
+      <h1>Invoice Checker</h1>
+      <div class="tabs-nav">
+        <button class="tab-link active" data-tab="invoice-tab">Invoice Extractor</button>
+        <button class="tab-link" data-tab="po-tab">PO Management</button>
+      </div>
+    </header>
+
+    <!-- Tab 1: Invoice Extractor -->
+    <div id="invoice-tab" class="tab-content active">
+      <div class="card">
+        <div class="drop-zone" id="drop-zone"
+          style="border: 2px dashed rgba(255,255,255,0.1); border-radius: 16px; padding: 4rem; text-align: center; cursor: pointer; position: relative;">
+          <div id="scanning-line"
+            style="position: absolute; top: 0; left: 0; width: 100%; height: 2px; background: var(--primary); display: none; animation: scan 2s linear infinite;">
+          </div>
+          <svg style="width: 48px; height: 48px; color: var(--primary); margin-bottom: 1rem;" fill="none"
+            stroke="currentColor" viewBox="0 0 24 24">
+            <path d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+          </svg>
+          <h3>Drop Invoices Here</h3>
+          <p style="color: var(--text-muted); margin-top: 10px;">PDF, PNG, JPG (6-digit POs only)</p>
+          <input type="file" id="file-input" multiple accept=".pdf,.png,.jpg,.jpeg" style="display: none;">
+          <button class="btn" id="browse-btn" style="margin-top: 20px;">Browse Files</button>
+        </div>
+      </div>
+
+      <section id="results-section" style="display: none;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+          <h2>Recent Extracts</h2>
+          <div style="display: flex; gap: 0.5rem;">
+            <button class="btn secondary" id="clear-btn" style="color: var(--danger);">Clear All</button>
+            <button class="btn secondary" id="download-btn">Download CSV</button>
+          </div>
+        </div>
+        <div class="table-container">
+          <table id="results-table">
+            <thead>
+              <tr>
+                <th>Filename</th>
+                <th>Supplier</th>
+                <th>Invoice #</th>
+                <th>PO Number</th>
+                <th>Total Amount</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="results-body"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <!-- Tab 2: PO Management -->
+    <div id="po-tab" class="tab-content">
+      <div class="card">
+        <h2>Create New Purchase Order</h2>
+        <p style="color: var(--text-muted); margin-bottom: 2rem;">Manually input order details and tracking information.
+        </p>
+
+        <form id="po-form">
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Supplier</label>
+              <input type="text" id="po-supplier" placeholder="e.g. Raptor Ltd" required>
+            </div>
+            <div class="form-group">
+              <label>PO Number</label>
+              <input type="text" id="po-number" placeholder="6-digit ID" maxlength="6" pattern="\d{6}" required>
+            </div>
+            <div class="form-group">
+              <label>Amount</label>
+              <input type="text" id="po-amount" placeholder="£0.00" required>
+            </div>
+            <div class="form-group">
+              <label>Status</label>
+              <select id="po-status">
+                <option value="Pending">Pending</option>
+                <option value="Prelim received">Prelim received</option>
+                <option value="Const received">Const received</option>
+                <option value="Inv. Approved">Inv. Approved</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Designer Responsible</label>
+              <input type="text" id="po-designer" placeholder="Name">
+            </div>
+            <div class="form-group">
+              <label>Design Title</label>
+              <input type="text" id="po-title" placeholder="Project Name">
+            </div>
+            <div class="form-group">
+              <label>Design Ref</label>
+              <input type="text" id="po-ref" placeholder="ID/Code">
+            </div>
+          </div>
+          <button type="submit" class="btn">Add Purchase Order</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <div
+          style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
+          <h2>PO Registry</h2>
+          <div style="position: relative; flex-grow: 1; max-width: 300px;">
+            <input type="text" id="po-search" placeholder="Search Supplier, PO# or Title..."
+              style="width: 100%; padding-left: 2.5rem; background: rgba(255,255,255,0.05);">
+            <svg
+              style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); width: 1.25rem; height: 1.25rem; color: var(--text-muted);"
+              fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </div>
+          <p style="font-size: 0.8rem; color: var(--text-muted);">Click any cell to edit</p>
+        </div>
+        <div class="table-container">
+          <table id="po-table">
+            <thead>
+              <tr>
+                <th>Supplier</th>
+                <th>PO#</th>
+                <th>Amount</th>
+                <th>Design Title</th>
+                <th>Designer</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="po-body">
+              <!-- Data will be injected here -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="/main.js"></script>
+  <style>
+    @keyframes scan {
+      0% {
+        top: 0;
+      }
+
+      100% {
+        top: 100%;
+      }
+    }
+  </style>
+</body>
+
+</html>
