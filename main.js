@@ -111,6 +111,62 @@ let poData = [
   { supplier: 'Prime Designs', po: '336680', amount: '£1080.00', status: 'Pending', designer: 'J. Doe', title: 'Phase 1 Options', ref: 'PSD-13544' }
 ];
 
+let statusLogData = [
+  { timestamp: new Date().toLocaleString(), po: '337938', supplier: 'Raptor Ltd', oldStatus: 'N/A', newStatus: 'Inv. Approved' },
+  { timestamp: new Date().toLocaleString(), po: '336680', supplier: 'Prime Designs', oldStatus: 'N/A', newStatus: 'Pending' }
+];
+
+const registerBody = document.getElementById('register-body');
+const clearLogBtn = document.getElementById('clear-log-btn');
+
+function logStatusChange(po, supplier, oldStatus, newStatus) {
+  const entry = {
+    timestamp: new Date().toLocaleString(),
+    po,
+    supplier,
+    oldStatus,
+    newStatus
+  };
+  statusLogData.unshift(entry);
+  renderStatusLog();
+}
+
+function renderStatusLog() {
+  registerBody.innerHTML = '';
+  statusLogData.forEach((log, index) => {
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td>${log.timestamp}</td>
+      <td><code>${log.po}</code></td>
+      <td>${log.supplier}</td>
+      <td><span style="color: var(--text-muted)">${log.oldStatus}</span></td>
+      <td><span class="status-badge ${getStatusClass(log.newStatus)}">${log.newStatus}</span></td>
+      <td>
+        <button class="btn secondary delete-log-btn" style="padding: 0.4rem; color: var(--danger);" data-index="${index}">Delete</button>
+      </td>
+    `;
+    registerBody.appendChild(row);
+  });
+
+  registerBody.querySelectorAll('.delete-log-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const index = e.target.getAttribute('data-index');
+      statusLogData.splice(index, 1);
+      renderStatusLog();
+    });
+  });
+}
+
+function getStatusClass(status) {
+  const statusClassMap = {
+    'Pending': 'status-pending',
+    'Prelim received': 'status-prelim',
+    'Const received': 'status-const',
+    'Inv. Approved': 'status-approved'
+  };
+  return statusClassMap[status] || 'status-prelim';
+}
+
 function renderPOs() {
   const searchTerm = poSearch.value.toLowerCase();
   poBody.innerHTML = '';
@@ -157,7 +213,14 @@ function renderPOs() {
   poBody.querySelectorAll('.status-select').forEach(select => {
     select.addEventListener('change', (e) => {
       const index = e.target.getAttribute('data-index');
-      poData[index].status = e.target.value;
+      const oldStatus = poData[index].status;
+      const newStatus = e.target.value;
+
+      if (oldStatus !== newStatus) {
+        logStatusChange(poData[index].po, poData[index].supplier, oldStatus, newStatus);
+        poData[index].status = newStatus;
+      }
+
       updateStatusDisplay(e.target);
     });
     updateStatusDisplay(select);
@@ -194,8 +257,14 @@ poForm.addEventListener('submit', (e) => {
     ref: document.getElementById('po-ref').value,
   };
   poData.unshift(newItem);
+  logStatusChange(newItem.po, newItem.supplier, 'N/A (Created)', newItem.status);
   renderPOs();
   poForm.reset();
+});
+
+clearLogBtn.addEventListener('click', () => {
+  statusLogData = [];
+  renderStatusLog();
 });
 
 // Search listener
@@ -211,3 +280,4 @@ clearBtn.addEventListener('click', () => {
 
 // Initial render
 renderPOs();
+renderStatusLog();

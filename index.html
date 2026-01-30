@@ -16,6 +16,7 @@
       <div class="tabs-nav">
         <button class="tab-link active" data-tab="invoice-tab">Invoice Extractor</button>
         <button class="tab-link" data-tab="po-tab">PO Management</button>
+        <button class="tab-link" data-tab="register-tab">Status Register</button>
       </div>
     </header>
 
@@ -146,20 +147,48 @@
           </table>
         </div>
       </div>
+      <!-- Tab 3: Status Register -->
+      <div id="register-tab" class="tab-content">
+        <div class="card">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+            <div>
+              <h2>Status Activity Log</h2>
+              <p style="color: var(--text-muted);">Historical record of every PO status change.</p>
+            </div>
+            <button class="btn secondary" id="clear-log-btn" style="color: var(--danger);">Clear Entire Log</button>
+          </div>
+          <div class="table-container">
+            <table id="register-table">
+              <thead>
+                <tr>
+                  <th>Date & Time</th>
+                  <th>PO Number</th>
+                  <th>Supplier</th>
+                  <th>Previous Status</th>
+                  <th>New Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="register-body">
+                <!-- Logs will be injected here -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </div>
-  </div>
-  <script type="module" src="/main.js"></script>
-  <style>
-    @keyframes scan {
-      0% {
-        top: 0;
-      }
+    <script type="module" src="/main.js"></script>
+    <style>
+      @keyframes scan {
+        0% {
+          top: 0;
+        }
 
-      100% {
-        top: 100%;
+        100% {
+          top: 100%;
+        }
       }
-    }
-  </style>
+    </style>
 </body>
 
 </html>
