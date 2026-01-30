@@ -112,17 +112,19 @@ let poData = [
 ];
 
 let statusLogData = [
-  { timestamp: new Date().toLocaleString(), po: '337938', supplier: 'Raptor Ltd', oldStatus: 'N/A', newStatus: 'Inv. Approved' },
-  { timestamp: new Date().toLocaleString(), po: '336680', supplier: 'Prime Designs', oldStatus: 'N/A', newStatus: 'Pending' }
+  { timestamp: new Date().toLocaleString(), po: '337938', title: 'Main Stage Build', supplier: 'Raptor Ltd', oldStatus: 'N/A', newStatus: 'Inv. Approved' },
+  { timestamp: new Date().toLocaleString(), po: '336680', title: 'Phase 1 Options', supplier: 'Prime Designs', oldStatus: 'N/A', newStatus: 'Pending' }
 ];
 
 const registerBody = document.getElementById('register-body');
 const clearLogBtn = document.getElementById('clear-log-btn');
+const registerSearch = document.getElementById('register-search');
 
-function logStatusChange(po, supplier, oldStatus, newStatus) {
+function logStatusChange(po, title, supplier, oldStatus, newStatus) {
   const entry = {
     timestamp: new Date().toLocaleString(),
     po,
+    title,
     supplier,
     oldStatus,
     newStatus
@@ -132,17 +134,26 @@ function logStatusChange(po, supplier, oldStatus, newStatus) {
 }
 
 function renderStatusLog() {
+  const searchTerm = registerSearch.value.toLowerCase();
   registerBody.innerHTML = '';
-  statusLogData.forEach((log, index) => {
+
+  const filteredLogs = statusLogData.filter(log =>
+    log.po.toLowerCase().includes(searchTerm) ||
+    (log.title && log.title.toLowerCase().includes(searchTerm))
+  );
+
+  filteredLogs.forEach((log) => {
+    const originalIndex = statusLogData.indexOf(log);
     const row = document.createElement('tr');
     row.innerHTML = `
       <td>${log.timestamp}</td>
       <td><code>${log.po}</code></td>
+      <td>${log.title || 'N/A'}</td>
       <td>${log.supplier}</td>
       <td><span style="color: var(--text-muted)">${log.oldStatus}</span></td>
       <td><span class="status-badge ${getStatusClass(log.newStatus)}">${log.newStatus}</span></td>
       <td>
-        <button class="btn secondary delete-log-btn" style="padding: 0.4rem; color: var(--danger);" data-index="${index}">Delete</button>
+        <button class="btn secondary delete-log-btn" style="padding: 0.4rem; color: var(--danger);" data-index="${originalIndex}">Delete</button>
       </td>
     `;
     registerBody.appendChild(row);
@@ -150,7 +161,7 @@ function renderStatusLog() {
 
   registerBody.querySelectorAll('.delete-log-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
-      const index = e.target.getAttribute('data-index');
+      const index = parseInt(e.target.getAttribute('data-index'));
       statusLogData.splice(index, 1);
       renderStatusLog();
     });
@@ -178,16 +189,17 @@ function renderPOs() {
     item.designer.toLowerCase().includes(searchTerm)
   );
 
-  filteredData.forEach((item, index) => {
+  filteredData.forEach((item) => {
+    const originalIndex = poData.indexOf(item);
     const row = document.createElement('tr');
     row.innerHTML = `
-      <td contenteditable="true" class="editable" data-field="supplier">${item.supplier}</td>
-      <td contenteditable="true" class="editable" data-field="po">${item.po}</td>
-      <td contenteditable="true" class="editable" data-field="amount">${item.amount}</td>
-      <td contenteditable="true" class="editable" data-field="title">${item.title}</td>
-      <td contenteditable="true" class="editable" data-field="designer">${item.designer}</td>
+      <td contenteditable="true" class="editable" data-field="supplier" data-index="${originalIndex}">${item.supplier}</td>
+      <td contenteditable="true" class="editable" data-field="po" data-index="${originalIndex}">${item.po}</td>
+      <td contenteditable="true" class="editable" data-field="amount" data-index="${originalIndex}">${item.amount}</td>
+      <td contenteditable="true" class="editable" data-field="title" data-index="${originalIndex}">${item.title}</td>
+      <td contenteditable="true" class="editable" data-field="designer" data-index="${originalIndex}">${item.designer}</td>
       <td>
-        <select class="status-select" data-index="${index}">
+        <select class="status-select" data-index="${originalIndex}">
           <option value="Pending" ${item.status === 'Pending' ? 'selected' : ''}>Pending</option>
           <option value="Prelim received" ${item.status === 'Prelim received' ? 'selected' : ''}>Prelim received</option>
           <option value="Const received" ${item.status === 'Const received' ? 'selected' : ''}>Const received</option>
@@ -195,7 +207,7 @@ function renderPOs() {
         </select>
       </td>
       <td>
-        <button class="btn secondary delete-btn" style="padding: 0.4rem; color: var(--danger);" data-index="${index}">Delete</button>
+        <button class="btn secondary delete-btn" style="padding: 0.4rem; color: var(--danger);" data-index="${originalIndex}">Delete</button>
       </td>
     `;
     poBody.appendChild(row);
@@ -204,7 +216,7 @@ function renderPOs() {
   // Attach event listeners for inline editing
   poBody.querySelectorAll('.editable').forEach(cell => {
     cell.addEventListener('blur', (e) => {
-      const index = e.target.closest('tr').rowIndex - 1;
+      const index = parseInt(e.target.getAttribute('data-index'));
       const field = e.target.getAttribute('data-field');
       poData[index][field] = e.target.innerText;
     });
@@ -212,13 +224,13 @@ function renderPOs() {
 
   poBody.querySelectorAll('.status-select').forEach(select => {
     select.addEventListener('change', (e) => {
-      const index = e.target.getAttribute('data-index');
-      const item = filteredData[index];
+      const index = parseInt(e.target.getAttribute('data-index'));
+      const item = poData[index];
       const oldStatus = item.status;
       const newStatus = e.target.value;
 
       if (oldStatus !== newStatus) {
-        logStatusChange(item.po, item.supplier, oldStatus, newStatus);
+        logStatusChange(item.po, item.title, item.supplier, oldStatus, newStatus);
         item.status = newStatus;
       }
 
@@ -229,7 +241,7 @@ function renderPOs() {
 
   poBody.querySelectorAll('.delete-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
-      const index = e.target.getAttribute('data-index');
+      const index = parseInt(e.target.getAttribute('data-index'));
       poData.splice(index, 1);
       renderPOs();
     });
@@ -258,7 +270,7 @@ poForm.addEventListener('submit', (e) => {
     ref: document.getElementById('po-ref').value,
   };
   poData.unshift(newItem);
-  logStatusChange(newItem.po, newItem.supplier, 'N/A (Created)', newItem.status);
+  logStatusChange(newItem.po, newItem.title, newItem.supplier, 'N/A (Created)', newItem.status);
   renderPOs();
   poForm.reset();
 });
@@ -268,9 +280,13 @@ clearLogBtn.addEventListener('click', () => {
   renderStatusLog();
 });
 
-// Search listener
+// Search listeners
 poSearch.addEventListener('input', () => {
   renderPOs();
+});
+
+registerSearch.addEventListener('input', () => {
+  renderStatusLog();
 });
 
 // Clear Extracts listener
