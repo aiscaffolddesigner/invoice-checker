@@ -213,12 +213,13 @@ function renderPOs() {
   poBody.querySelectorAll('.status-select').forEach(select => {
     select.addEventListener('change', (e) => {
       const index = e.target.getAttribute('data-index');
-      const oldStatus = poData[index].status;
+      const item = filteredData[index];
+      const oldStatus = item.status;
       const newStatus = e.target.value;
 
       if (oldStatus !== newStatus) {
-        logStatusChange(poData[index].po, poData[index].supplier, oldStatus, newStatus);
-        poData[index].status = newStatus;
+        logStatusChange(item.po, item.supplier, oldStatus, newStatus);
+        item.status = newStatus;
       }
 
       updateStatusDisplay(e.target);
