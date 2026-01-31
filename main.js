@@ -82,11 +82,22 @@ dropZone.addEventListener('drop', (e) => {
   handleFiles(e.dataTransfer.files);
 });
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+const pdfLib = window.pdfjsLib || (typeof pdfjsLib !== 'undefined' ? pdfjsLib : null);
+if (pdfLib) {
+  pdfLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
 
 async function handleFiles(files) {
   console.log('Files received:', files.length);
   if (files.length === 0) return;
+
+  // Check for dependencies
+  if (typeof pdfjsLib === 'undefined' && typeof window.pdfjsLib === 'undefined') {
+    alert('PDF Library failed to load. Please check your internet connection and refresh the page.');
+    return;
+  }
+  const pdfLib = window.pdfjsLib || pdfjsLib;
+
   scanningLine.style.display = 'block';
   resultsSection.style.display = 'block';
   for (const file of files) {
@@ -114,7 +125,8 @@ async function processFile(file) {
   try {
     if (file.type === 'application/pdf') {
       const arrayBuffer = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      const pdfLib = window.pdfjsLib || pdfjsLib;
+      const pdf = await pdfLib.getDocument({ data: arrayBuffer }).promise;
       const numPages = pdf.numPages;
 
       for (let i = 1; i <= numPages; i++) {
