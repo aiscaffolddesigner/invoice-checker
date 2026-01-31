@@ -23,6 +23,53 @@ const resultsBody = document.getElementById('results-body');
 const scanningLine = document.getElementById('scanning-line');
 const downloadBtn = document.getElementById('download-btn');
 const clearBtn = document.getElementById('clear-btn');
+const geminiKeyInput = document.getElementById('gemini-key');
+const deepAnalysisCheckbox = document.getElementById('deep-analysis');
+
+if (localStorage.getItem('gemini_api_key')) {
+  geminiKeyInput.value = localStorage.getItem('gemini_api_key');
+}
+if (localStorage.getItem('deep_analysis') === 'true') {
+  deepAnalysisCheckbox.checked = true;
+}
+
+let discoveredModel = 'gemini-1.5-flash'; // Fallback
+
+geminiKeyInput.addEventListener('input', (e) => {
+  localStorage.setItem('gemini_api_key', e.target.value);
+  autoDiscoverModel(e.target.value);
+});
+
+async function autoDiscoverModel(apiKey) {
+  if (!apiKey) return;
+  console.log('🔍 Discovering suitable Gemini model...');
+  try {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+    if (!response.ok) return;
+    const data = await response.json();
+    const models = data.models
+      .filter(m => m.supportedGenerationMethods.includes('generateContent'))
+      .filter(m => m.name.includes('gemini'));
+
+    if (models.length > 0) {
+      // Prioritize flash models
+      const flash = models.find(m => m.name.toLowerCase().includes('flash'));
+      discoveredModel = flash ? flash.name.replace('models/', '') : models[0].name.replace('models/', '');
+      console.log('✅ Auto-discovered model:', discoveredModel);
+    }
+  } catch (e) {
+    console.warn('Discovery failed, using fallback:', discoveredModel);
+  }
+}
+
+// Initial discovery
+if (geminiKeyInput.value) {
+  autoDiscoverModel(geminiKeyInput.value);
+}
+
+deepAnalysisCheckbox.addEventListener('change', (e) => {
+  localStorage.setItem('deep_analysis', e.target.checked);
+});
 
 browseBtn.addEventListener('click', () => fileInput.click());
 fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
@@ -35,35 +82,365 @@ dropZone.addEventListener('drop', (e) => {
   handleFiles(e.dataTransfer.files);
 });
 
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
 async function handleFiles(files) {
+  console.log('Files received:', files.length);
   if (files.length === 0) return;
   scanningLine.style.display = 'block';
   resultsSection.style.display = 'block';
-  for (const file of files) { await processFile(file); }
+  for (const file of files) {
+    console.log('Processing file:', file.name, 'Type:', file.type);
+    try {
+      await processFile(file);
+    } catch (error) {
+      console.error('CRITICAL Error processing file:', file.name, error);
+      const row = document.createElement('tr');
+      row.innerHTML = `<td>${file.name}</td><td colspan="5" style="color: var(--danger);">Error: ${error.message}</td>`;
+      resultsBody.prepend(row);
+    }
+  }
   scanningLine.style.display = 'none';
 }
 
 async function processFile(file) {
-  return new Promise((resolve) => {
+  const initialRow = document.createElement('tr');
+  initialRow.innerHTML = `<td>${file.name}</td><td colspan="5" style="color: var(--text-muted); font-style: italic;">Preparing file...</td>`;
+  resultsBody.prepend(initialRow);
+
+  const apiKey = geminiKeyInput.value.trim();
+  let allExtractedItems = [];
+
+  try {
+    if (file.type === 'application/pdf') {
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      const numPages = pdf.numPages;
+
+      for (let i = 1; i <= numPages; i++) {
+        initialRow.innerHTML = `<td>${file.name}</td><td colspan="5" style="color: var(--primary); font-style: italic;">Processing Page ${i} of ${numPages}...</td>`;
+
+        // Add a small delay to avoid rate limiting on multi-page files
+        if (i > 1) await new Promise(r => setTimeout(r, 800));
+
+        const page = await pdf.getPage(i);
+        const { base64Data, text } = await processPageData(page, i);
+
+        let pageItems = [];
+        if (apiKey) {
+          const isDeep = deepAnalysisCheckbox.checked;
+          if (isDeep) {
+            pageItems = await callDeepReasoningChain(`[PAGE ${i}]\n${text}`, apiKey, base64Data, 'image/png', initialRow);
+          } else {
+            pageItems = await callGemini(`[PAGE ${i}]\n${text}`, apiKey, base64Data, 'image/png', initialRow);
+          }
+        } else {
+          pageItems = [parseInvoiceText(text)];
+        }
+
+        // Add page info to each item
+        pageItems.forEach(item => {
+          item.pages = i.toString();
+          allExtractedItems.push(item);
+        });
+      }
+    } else if (file.type.startsWith('image/')) {
+      initialRow.innerHTML = `<td>${file.name}</td><td colspan="5" style="color: var(--primary); font-style: italic;">Processing Image...</td>`;
+      const result = await Tesseract.recognize(file, 'eng');
+      const text = result.data.text;
+      const base64Data = await fileToBase64(file);
+
+      if (apiKey) {
+        allExtractedItems = await callGemini(text, apiKey, base64Data, file.type, initialRow);
+      } else {
+        allExtractedItems = [parseInvoiceText(text)];
+      }
+      allExtractedItems.forEach(item => item.pages = "1");
+    }
+  } catch (error) {
+    console.error('Processing failed:', error);
+    initialRow.innerHTML = `<td>${file.name}</td><td colspan="5" style="color: var(--danger); font-weight: bold;">❌ Error: ${error.message}</td>`;
+    return;
+  }
+
+  // Final step: Merge consecutive pages that belong to the same invoice
+  const mergedItems = mergeInvoicePages(allExtractedItems);
+
+  // Remove the "Preparing..." row
+  initialRow.remove();
+
+  // Render rows
+  mergedItems.forEach((data, index) => {
+    const validation = validateExtraction(data.po, data.amount);
     const row = document.createElement('tr');
-    row.innerHTML = `<td>${file.name}</td><td colspan="3" style="color: var(--text-muted); font-style: italic;">Analyzing...</td><td><span class="status-badge status-prelim">Processing</span></td>`;
+
+    const pageLabel = data.pages ? `<br><small style="color:var(--text-muted)">Pages: ${data.pages}</small>` : '';
+    const fileLabel = mergedItems.length > 1
+      ? `<strong>${file.name}</strong> <small style="display:block; color:var(--primary)">Invoice ${index + 1}${pageLabel}</small>`
+      : `<strong>${file.name}</strong>${pageLabel}`;
+
+    row.innerHTML = `
+      <td>${fileLabel}</td>
+      <td>${data.supplier || 'Unknown'}</td>
+      <td><code>${data.invNum || 'N/A'}</code></td>
+      <td><code>${data.po || 'N/A'}</code></td>
+      <td><span style="font-weight: 600;">${data.amount || '£0.00'}</span></td>
+      <td><span class="status-badge ${validation.class}">${validation.text}</span></td>
+    `;
     resultsBody.prepend(row);
-
-    setTimeout(() => {
-      const mockData = getMockData(file.name);
-      const validation = validateExtraction(mockData.po, mockData.amount);
-
-      row.innerHTML = `
-        <td><strong>${file.name}</strong></td>
-        <td>${mockData.supplier}</td>
-        <td><code>${mockData.invNum}</code></td>
-        <td><code>${mockData.po}</code></td>
-        <td><span style="font-weight: 600;">${mockData.amount}</span></td>
-        <td><span class="status-badge ${validation.class}">${validation.text}</span></td>
-      `;
-      resolve();
-    }, 1200);
   });
+}
+
+async function processPageData(page, pageNum) {
+  const viewport = page.getViewport({ scale: 1.5 }); // Balanced scale for OCR + API payload
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d');
+  canvas.height = viewport.height;
+  canvas.width = viewport.width;
+
+  await page.render({ canvasContext: context, viewport: viewport }).promise;
+  const base64Data = canvas.toDataURL('image/png').split(',')[1];
+
+  const textContent = await page.getTextContent();
+  const text = textContent.items.map(item => item.str).join(' ');
+
+  return { base64Data, text };
+}
+
+function mergeInvoicePages(items) {
+  if (items.length <= 1) return items;
+
+  const merged = [];
+  let current = items[0];
+
+  for (let i = 1; i < items.length; i++) {
+    const next = items[i];
+
+    // Logic: If same supplier AND same invoice number AND consecutive pages
+    // or if next page has "Unknown" but current has data (dangerous but common in multi-page)
+    const isSameInvoice =
+      (next.supplier === current.supplier && next.invNum === current.invNum && next.invNum !== 'N/A') ||
+      (next.invNum === 'N/A' && next.supplier === current.supplier && current.invNum !== 'N/A');
+
+    if (isSameInvoice) {
+      // Merge pages range
+      const currentPages = current.pages.split('-');
+      const start = currentPages[0];
+      const end = next.pages;
+      current.pages = `${start}-${end}`;
+    } else {
+      merged.push(current);
+      current = next;
+    }
+  }
+  merged.push(current);
+  return merged;
+}
+
+async function callGemini(text, apiKey, base64Data, mimeType, activeRow = null, retryCount = 0) {
+  const model = discoveredModel;
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+  console.log(`Calling ${model} via v1beta...`);
+
+  const prompt = `
+    You are a professional Invoice Auditor. Your task is to extract data from the provided image of an invoice page.
+    
+    INSTRUCTIONS:
+    1. **Identify the Vendor**: Look for the company name, logo, and address.
+    2. **Identify Invoice Details**: Find the Invoice Number and 6-digit PO number.
+    3. **Total Amount**: Find the FINAL total or balance due on THIS page.
+    4. **Handle Multi-Invoice Pages**: If there is more than one separate invoice on this single image, return an entry for each.
+
+    Return ONLY a valid JSON ARRAY of objects.
+    JSON Structure:
+    [
+      {
+        "supplier": "Full Legal Name",
+        "invNum": "Invoice ID",
+        "po": "6-digit PO",
+        "amount": "£0.00",
+        "reasoning": "Briefly describe the document found"
+      }
+    ]
+
+    OCR Text for context:
+    ---
+    ${text}
+    ---
+  `;
+
+  const payload = {
+    contents: [{
+      parts: [
+        { text: prompt },
+        {
+          inline_data: {
+            mime_type: mimeType,
+            data: base64Data
+          }
+        }
+      ]
+    }]
+  };
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  const result = await response.json();
+
+  if (!response.ok) {
+    if (response.status === 429 && retryCount < 3) {
+      const waitMatch = (result.error?.message || '').match(/retry in ([\d.]+)s/i);
+      const isLimitZero = (result.error?.message || '').includes('limit: 0');
+
+      if (isLimitZero) {
+        throw new Error(`Quota Limit is 0 for ${model}. Please ensure your API key has access to Gemini 1.5 Flash.`);
+      }
+
+      const waitTime = waitMatch ? (parseFloat(waitMatch[1]) + 2) * 1000 : 30000;
+
+      if (activeRow) {
+        const originalContent = activeRow.innerHTML;
+        activeRow.innerHTML = originalContent.replace(/Processing Page \d+ of \d+\.\.\./, `⏳ Waiting for Quota (${Math.round(waitTime / 1000)}s)...`);
+        await new Promise(r => setTimeout(r, waitTime));
+        activeRow.innerHTML = originalContent; // Restore
+      } else {
+        await new Promise(r => setTimeout(r, waitTime));
+      }
+      return callGemini(text, apiKey, base64Data, mimeType, activeRow, retryCount + 1);
+    }
+    console.error('Gemini API Details:', result);
+    throw new Error(result.error?.message || `API Error: ${response.status}`);
+  }
+
+  if (!result.candidates || result.candidates.length === 0) {
+    throw new Error('No candidate returned from Gemini');
+  }
+
+  const content = result.candidates[0].content.parts[0].text;
+  const jsonMatch = content.match(/\[[\s\S]*\]/);
+
+  if (!jsonMatch) {
+    const objMatch = content.match(/\{[\s\S]*\}/);
+    return objMatch ? [JSON.parse(objMatch[0])] : [];
+  }
+
+  return JSON.parse(jsonMatch[0]);
+}
+
+async function callDeepReasoningChain(text, apiKey, base64Data, mimeType, activeRow = null) {
+  console.log('Starting Deep Analysis (Dual-Pass Flash)...');
+
+  // Step 1: Initial extraction
+  const initialDraft = await callGemini(text, apiKey, base64Data, mimeType, activeRow);
+  console.log('Draft generated:', initialDraft);
+
+  // Step 2: Second pass for auditing (also using Flash for quota reliability)
+  const auditPrompt = `
+    You are a Lead Financial Controller auditing a single invoice page.
+    
+    Draft Data to Verify:
+    ${JSON.stringify(initialDraft, null, 2)}
+    
+    INSTRUCTIONS:
+    1. **Verify the Supplier**: Is there any other company name on this page?
+    2. **Verify Amounts**: Is there a larger "Total" or "Balance" that was missed?
+    3. **PO Number**: Confirm the 6-digit PO.
+    
+    Return the final corrected JSON ARRAY.
+    [
+      {
+        "supplier": "...",
+        "invNum": "...",
+        "po": "...",
+        "amount": "...",
+        "audit_notes": "Corrections made"
+      }
+    ]
+
+    OCR Context:
+    ---
+    ${text}
+    ---
+  `;
+
+  if (activeRow) {
+    const originalContent = activeRow.innerHTML;
+    activeRow.innerHTML = originalContent.replace(/Processing Page \d+ of \d+\.\.\./, `⏳ Deep Auditing...`);
+    const finalResults = await callGemini(auditPrompt, apiKey, base64Data, mimeType, activeRow);
+    activeRow.innerHTML = originalContent; // Restore
+    return finalResults;
+  } else {
+    return await callGemini(auditPrompt, apiKey, base64Data, mimeType);
+  }
+}
+
+
+async function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => {
+      const base64String = reader.result.split(',')[1];
+      resolve(base64String);
+    };
+    reader.onerror = (error) => reject(error);
+  });
+}
+
+function parseInvoiceText(text) {
+  // Clean text: remove multiple spaces and normalize newlines
+  const cleanText = text.replace(/[ ]+/g, ' ').trim();
+  console.log('Cleaned Extracted Text:', cleanText);
+
+  // Regex patterns
+  const patterns = {
+    po: /(?:PO[:\s]*|Reference\s*PO\s*|Order No[:\s]*|PO Number[:\s]*)(\d{6})/i,
+    invNum: /(?:Invoice Number|Invoice No|Number|Inv #|Invoice #|Ref)[:\s]*([0-9]{4,}|[A-Z0-9-/]{4,})/i,
+    // Use global flag to find all amounts and then pick the last one (usually the total)
+    amount: /(?:Amount Due|TOTAL:?|Total Amount|Invoice Total|Balance Due|Total GBP|TOTAL:? £|Amount Due GBP)\s*[£$]?\s*([\d,]+\.\d{2})/gi,
+    // Look for company names in the first 10 lines
+    supplier: /([A-Z][A-Za-z0-9& ]+(?:Ltd|Limited|Consultancy|Designs|Design|Scaffold|Structural))/
+  };
+
+  const data = {
+    supplier: 'Unknown Vendor',
+    invNum: 'N/A',
+    po: 'N/A',
+    amount: '£0.00'
+  };
+
+  const poMatch = cleanText.match(patterns.po);
+  if (poMatch) data.po = poMatch[1];
+
+  const invMatch = cleanText.match(patterns.invNum);
+  if (invMatch) data.invNum = invMatch[1];
+
+  // Find all amount matches
+  const amountMatches = Array.from(cleanText.matchAll(patterns.amount));
+  if (amountMatches.length > 0) {
+    // Pick the LAST match, which is usually the total at the bottom of the invoice
+    const lastMatch = amountMatches[amountMatches.length - 1];
+    data.amount = '£' + lastMatch[1];
+  }
+
+  // Vendor detection: check for keywords first
+  const lowerText = cleanText.toLowerCase();
+  if (lowerText.includes('raptor scaffold')) data.supplier = 'Raptor Scaffold Design';
+  else if (lowerText.includes('prime scaffold')) data.supplier = 'Prime Scaffold Designs';
+  else if (lowerText.includes('kaefer')) data.supplier = 'KAEFER Ltd';
+  else {
+    // If no keyword match, try the regex on the first part of the text
+    const header = cleanText.split('\n').slice(0, 10).join('\n');
+    const supplierMatch = header.match(patterns.supplier);
+    if (supplierMatch) data.supplier = supplierMatch[1].trim();
+  }
+
+  return data;
 }
 
 function validateExtraction(poNum, amountStr) {
@@ -92,14 +469,7 @@ function validateExtraction(poNum, amountStr) {
   return { text: po.status, class: statusClassMap[po.status] || 'status-prelim' };
 }
 
-function getMockData(filename) {
-  const name = filename.toLowerCase();
-  // Ensure PO numbers are strictly 6 digits as per user request
-  if (name.includes('raptor')) return { supplier: 'Raptor Scaffold Design', invNum: '6415', po: '337938', amount: '£3648.00' };
-  if (name.includes('psd') || name.includes('prime')) return { supplier: 'Prime Scaffold Designs', invNum: '14059', po: '336680', amount: '£1080.00' };
-  if (name.includes('7-144')) return { supplier: 'Raptor Scaffold Design', invNum: '6435', po: '337801', amount: '£2280.00' };
-  return { supplier: 'Generic Vendor Ltd', invNum: 'INV-1001', po: '123456', amount: '£450.00' };
-}
+// getMockData removed as it is replaced by parseInvoiceText
 
 // --- PO MANAGEMENT LOGIC ---
 const poForm = document.getElementById('po-form');
@@ -293,6 +663,32 @@ registerSearch.addEventListener('input', () => {
 clearBtn.addEventListener('click', () => {
   resultsBody.innerHTML = '';
   resultsSection.style.display = 'none';
+});
+
+// Download CSV listener
+downloadBtn.addEventListener('click', () => {
+  const rows = Array.from(resultsBody.querySelectorAll('tr'));
+  if (rows.length === 0) return;
+
+  const csvRows = [];
+  csvRows.push("Filename,Supplier,Invoice #,PO Number,Total Amount,Status");
+
+  rows.forEach(row => {
+    const cells = Array.from(row.querySelectorAll('td'));
+    if (cells.length < 6) return; // Skip error rows
+    const rowData = cells.map(td => `"${td.innerText.replace(/"/g, '""')}"`);
+    csvRows.push(rowData.join(","));
+  });
+
+  const csvString = csvRows.join("\n");
+  const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.setAttribute("href", url);
+  link.setAttribute("download", "extracted_invoices.csv");
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 });
 
 // Initial render

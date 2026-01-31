@@ -7,12 +7,31 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Antigravity Invoice & PO Management</title>
   <link rel="stylesheet" href="./style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 </head>
 
 <body>
   <div class="container">
     <header>
-      <h1>Invoice Checker</h1>
+      <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+        <h1>Invoice Checker</h1>
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
+          <div class="deep-analysis-container"
+            style="display: flex; align-items: center; gap: 0.5rem; background: rgba(255,255,255,0.05); padding: 0.5rem 1rem; border-radius: 8px;">
+            <label
+              style="font-size: 0.8rem; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; gap: 0.4rem;">
+              <input type="checkbox" id="deep-analysis" style="cursor: pointer;"> Deep Analysis
+            </label>
+          </div>
+          <div class="api-key-container"
+            style="display: flex; align-items: center; gap: 0.5rem; background: rgba(255,255,255,0.05); padding: 0.5rem 1rem; border-radius: 8px;">
+            <span style="font-size: 0.8rem; color: var(--text-muted); white-space: nowrap;">Gemini API Key:</span>
+            <input type="password" id="gemini-key" placeholder="Enter Key..."
+              style="background: transparent; border: 1px solid rgba(255,255,255,0.1); color: white; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; width: 130px;">
+          </div>
+        </div>
+      </div>
       <div class="tabs-nav">
         <button class="tab-link active" data-tab="invoice-tab">Invoice Extractor</button>
         <button class="tab-link" data-tab="po-tab">PO Management</button>
