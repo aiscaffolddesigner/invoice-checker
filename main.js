@@ -475,6 +475,8 @@ function validateExtraction(poNum, amountStr) {
 const poForm = document.getElementById('po-form');
 const poBody = document.getElementById('po-body');
 const poSearch = document.getElementById('po-search');
+const importPoBtn = document.getElementById('import-po-btn');
+const poImportInput = document.getElementById('po-import-input');
 
 let poData = [
   { supplier: 'Raptor Ltd', po: '337938', amount: '£3648.00', status: 'Inv. Approved', designer: 'R. Gonzalez', title: 'Main Stage Build', ref: '24/Rap/451' },
@@ -657,6 +659,56 @@ poSearch.addEventListener('input', () => {
 
 registerSearch.addEventListener('input', () => {
   renderStatusLog();
+});
+
+// PO Import handlers
+importPoBtn.addEventListener('click', () => poImportInput.click());
+
+poImportInput.addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = (event) => {
+    const text = event.target.result;
+    const lines = text.split('\n');
+    const newItems = [];
+
+    // Assume header: Supplier, PO, Amount, Title, Designer, Status, Ref
+    // If some fields missing, we use defaults
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+
+      const cols = line.split(',').map(c => c.replace(/^"|"$/g, '').trim());
+      if (cols.length < 3) continue; // Min required fields
+
+      const item = {
+        supplier: cols[0] || 'Unknown',
+        po: cols[1] || '000000',
+        amount: cols[2] || '£0.00',
+        title: cols[3] || 'N/A',
+        designer: cols[4] || 'N/A',
+        status: cols[5] || 'Pending',
+        ref: cols[6] || ''
+      };
+
+      // Basic formatting cleanup
+      if (!item.amount.startsWith('£')) item.amount = '£' + item.amount;
+
+      newItems.push(item);
+      logStatusChange(item.po, item.title, item.supplier, 'N/A (Bulk Import)', item.status);
+    }
+
+    if (newItems.length > 0) {
+      poData = [...newItems, ...poData]; // Newest first
+      renderPOs();
+      alert(`Successfully imported ${newItems.length} purchase orders.`);
+    }
+
+    poImportInput.value = ''; // Reset
+  };
+  reader.readAsText(file);
 });
 
 // Clear Extracts listener
